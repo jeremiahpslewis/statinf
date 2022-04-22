@@ -145,7 +145,7 @@ cm"Reshape the dataframe for easier plotting:"
 df_c19_long = stack(df_c19_fcast, [:total_cases, :total_cases_loglin, :total_cases_loglin_sq, :total_cases_poisson, :total_cases_poisson_sq, :total_cases_ln])
 
 # ╔═╡ cc71b280-18e9-47cb-b036-e6b25570db48
-cm"### Select A Country To Plot!"
+cm"### Select A Country To Plot! (To run this, see the link at the top right of this notebook.)"
 
 # ╔═╡ 5a050a79-2e42-4999-9c2c-15064b95e046
 begin
@@ -180,7 +180,7 @@ begin
 end
 
 # ╔═╡ 6db6b0e0-bd98-434b-818e-c447f85ec02f
-cm"Acknowlegement: This notebook was inspired by course material from Statistical Inferences II at HU Berlin"
+cm"Acknowlegements: This notebook was inspired by course material from Statistical Inferences II at HU Berlin."
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
