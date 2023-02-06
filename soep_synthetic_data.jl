@@ -86,12 +86,7 @@ function simulate_(model, n_households)
 	m_ = model(params, _vectors...)
 	sim_data_ = rand(m_)
 	
-	return sim_data_#SOEPSyntheticStataData(sim_data_...)
-end
-
-# ╔═╡ fdca2641-136a-4f48-b169-586abf31fadb
-function edu_age_to_wage(edu, age)
-	return (edu * 10 + age) / 2
+	return sim_data_
 end
 
 # ╔═╡ 2a3ea300-5d07-49d1-aea6-6cf8864d1f9f
@@ -122,6 +117,11 @@ m1 = @model (params,
 		actual_hours_worked_m,
 		actual_hours_worked_w,
 	) begin
+
+	# Helper function mapping education and age to wage
+	function edu_age_to_wage(edu, age)
+		return (edu * 10 + age) / 2
+	end
 	# TODO: better parameterization for hours worked constraint
 	@inbounds for i = 1:params[:n_households]
 		age_m[i] ~ truncated(Distributions.Normal(35, 8); lower = 25, upper = 55)
@@ -141,13 +141,9 @@ m1 = @model (params,
 		mean_wage_edu_age_w[i] ~ Distributions.Uniform(0,1)
 
 		# assign 'average wage' for given edu / age level
-		mean_wage_edu_age_m[i] = edu_age_to_wage(education_m[i], age_m[i])
-		mean_wage_edu_age_w[i] = edu_age_to_wage(education_w[i], age_w[i])
-	end
-		
-	# avg_wage_mueller = mean([13.37, 19.82]) # avg woman, man wage from Mueller paper
+		mean_wage_edu_age_m[i] = (education_m[i] * 10 + age_m[i]) / 2
+		mean_wage_edu_age_w[i] = (education_w[i] * 10 + age_w[i]) / 2
 
-	@inbounds for i = 1:params[:n_households]
 		# specified (arbitrary) s.d. of wage variance for given education and age class
 		sd_wage__by_edu_age = 2 # equivalent to 4k per year, per s.d.
 		hourly_wage_m[i] ~ Distributions.Normal(mean_wage_edu_age_m[i], sd_wage__by_edu_age)
@@ -159,6 +155,7 @@ m1 = @model (params,
 		actual_hours_worked_w[i] ~ Distributions.Uniform(0,1)
 		child_care_hours_m[i] ~ Distributions.Uniform(0,1)
 		child_care_hours_w[i] ~ Distributions.Uniform(0,1)
+		pct_child_care_responsibility_m[i] ~ Distributions.Uniform(0,1)
 
 		wage_gap[i] = hourly_wage_m[i] - hourly_wage_w[i]
 		
@@ -177,15 +174,13 @@ m1 = @model (params,
 		# Actual hours are 'truncated' by child care restrictions
 		# Child 'carer' has hours ceiling (because of child care obligations)
 		# Non-carer has hours floor (because of household income needs)
-	 	child_care_hours_obligation = 30
+		child_care_hours_obligation = 30
 		# External child care hours available
 		childcare_external_hours[i] ~ truncated(Distributions.Normal(20, 10); lower=0, upper=40)
 
 		child_care_hours_m[i] = pct_child_care_responsibility_m[i] * (child_care_hours_obligation[i] - childcare_external_hours[i])
 		child_care_hours_w[i] = (1 - pct_child_care_responsibility_m[i]) * (child_care_hours_obligation[i] - childcare_external_hours[i])
 
-		# Only actually constrained if childcare coverage is not available
-		# Then assign work and childcare roles based on primary_child_care_responsibility_m status
 		actual_hours_worked_m[i] = clamp(desired_hours_worked_m[i],  0, 40 - child_care_hours_m[i])
 		actual_hours_worked_w[i] = clamp(desired_hours_worked_w[i],  0, 40 - child_care_hours_w[i])
 		
@@ -217,23 +212,24 @@ mean(data[!, :age_m])
 
 # ╔═╡ 672185e5-0952-4261-bd1b-e936d002bf24
 w_design_matrix = @chain data begin
-	@select(:pct_child_care_responsibility = 1 -:pct_child_care_responsibility_m, :age = :age_w, :education = :education_w, :gender_w = 1, :hourly_wage = :hourly_wage_w, :wage_gap = :wage_gap * -1, :actual_hours_worked = :actual_hours_worked_w,
+	@select(:primary_child_care_responsibility = :pct_child_care_responsibility_m <= 0.5,
+		:pct_child_care_responsibility = 1 -:pct_child_care_responsibility_m, :age = :age_w, :education = :education_w, :gender_w = 1, :hourly_wage = :hourly_wage_w, :wage_gap = :wage_gap * -1, :actual_hours_worked = :actual_hours_worked_w,
 	:desired_hours_worked = :desired_hours_worked_w,
 	:is_restricted = :actual_hours_worked_w < :desired_hours_worked_w,
 	:upward_restricted = :actual_hours_worked_w < :desired_hours_worked_w,
-	:downward_restricted = :actual_hours_worked_w > :desired_hours_worked_w,
-	:childcare_coverage_available)		
+	:downward_restricted = :actual_hours_worked_w > :desired_hours_worked_w)		
 end
 
 # ╔═╡ bae29f03-dbdb-4f9a-8246-dc6906607438
 m_design_matrix = @chain data begin
-	@select(:primary_child_care_responsibility = :primary_child_care_responsibility_m, :age = :age_m, :education = :education_m, :gender_w = 0, :hourly_wage = :hourly_wage_m, :wage_gap,
+	@select(:primary_child_care_responsibility = :pct_child_care_responsibility_m > 0.5,
+		:pct_child_care_responsibility = :pct_child_care_responsibility_m,
+		:age = :age_m, :education = :education_m, :gender_w = 0, :hourly_wage = :hourly_wage_m, :wage_gap,
 	:actual_hours_worked = :actual_hours_worked_m,
 	:desired_hours_worked = :desired_hours_worked_m,
 	:is_restricted = :actual_hours_worked_m != :desired_hours_worked_m,	
 	:upward_restricted = :actual_hours_worked_m < :desired_hours_worked_m,
-	:downward_restricted = :actual_hours_worked_m > :desired_hours_worked_m,
-	:childcare_coverage_available)
+	:downward_restricted = :actual_hours_worked_m > :desired_hours_worked_m)
 end
 
 # ╔═╡ ea5767c8-3169-4a13-b0dc-eefaa27be56f
@@ -305,7 +301,7 @@ Tilde = "~0.2.0"
 PLUTO_MANIFEST_TOML_CONTENTS = """
 # This file is machine-generated - editing it directly is not advised
 
-julia_version = "1.9.0-beta2"
+julia_version = "1.9.0-beta3"
 manifest_format = "2.0"
 project_hash = "a22ce7d3acdf4a9aceee2e0bde47f28ef131a772"
 
@@ -1141,7 +1137,7 @@ version = "0.40.1+0"
 [[deps.Pkg]]
 deps = ["Artifacts", "Dates", "Downloads", "FileWatching", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Serialization", "TOML", "Tar", "UUIDs", "p7zip_jll"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-version = "1.8.0"
+version = "1.9.0"
 
 [[deps.PlotThemes]]
 deps = ["PlotUtils", "Statistics"]
@@ -1748,11 +1744,9 @@ version = "1.4.1+0"
 # ╠═44727238-9015-11ed-3208-2fb7cdd0b976
 # ╠═bf8dedac-d639-4989-b605-45181de9f426
 # ╟─da36c7b7-a599-4dcb-8892-a4a19e127a1b
-# ╠═edcc537c-1e22-4c5b-b867-9f29ff04b507
 # ╟─65ed3871-756b-45f8-9ba2-e06fbc3bf2f6
 # ╠═30483a0d-f9f4-418e-877d-f500d7062049
 # ╠═3fa0a098-81da-440a-bec6-cf0933cf108f
-# ╠═fdca2641-136a-4f48-b169-586abf31fadb
 # ╠═2a3ea300-5d07-49d1-aea6-6cf8864d1f9f
 # ╠═c8ba8219-89e9-4045-868b-dcd98f75fe08
 # ╠═b4f0aa3c-f846-435f-8f32-1d8bc4329915
@@ -1769,11 +1763,9 @@ version = "1.4.1+0"
 # ╠═cb308118-6a25-4942-9475-ae30c174fcf3
 # ╠═c78c961f-fccc-485b-93c3-c63f4d688121
 # ╠═2b4c34b2-0b2c-48d6-a59e-e68596160884
-# ╠═faeeb0f5-e889-4b11-b7cb-75cba232d007
 # ╠═08a6a932-4f37-49c8-9e5c-0be446cdb392
 # ╠═cae2e482-975c-496c-ad60-35eff25a96b4
 # ╠═877432a5-20e3-4858-a7c8-62772fe44f36
-# ╠═bc1adedb-08f0-4294-8188-7be0d3a21b16
 # ╠═f085b251-3bae-4e47-bc32-33d04f3c28c2
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
