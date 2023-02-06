@@ -240,7 +240,7 @@ crunch_simulation(sim_data[1]);
 # ╔═╡ dd7422a3-b34e-45a8-8883-ced1cca5a2ff
 begin
 	df_mse = DataFrame()
-	for i in 1:length(sim_data)
+	for i in axes(sim_data, 1)
 		df_sim_ = @chain crunch_simulation(sim_data[i]) begin
 			@combine(:mse_β̂_re = mean((:β̂_re - :Δ_bike).^2),
 				:mse_β̂_ols = mean((:β̂_ols - :Δ_bike).^2),
